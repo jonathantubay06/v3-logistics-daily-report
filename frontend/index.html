@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>V3 Logistics BOL Daily Report</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-name">V3 LOGISTICS</span>
+    </div>
+    <div class="brand-sub">BOL Daily Report Generator</div>
+  </header>
+
+  <main id="login-view" class="card">
+    <h2>Sign in</h2>
+    <p class="muted">Enter the team password to continue.</p>
+    <label>TEAM PASSWORD
+      <input id="team-pw" type="password" autocomplete="current-password" />
+    </label>
+    <label>WORKER URL <span class="muted" style="text-transform:none;">(auto-filled by launcher; override only if needed)</span>
+      <input id="worker-url" type="text" placeholder="https://xxxx.trycloudflare.com" />
+    </label>
+    <button id="login-btn" class="primary">Sign in</button>
+    <p id="login-err" class="err"></p>
+  </main>
+
+  <main id="dash-view" class="card hidden">
+    <h2>Generate today's BOL report</h2>
+    <div class="row">
+      <button class="primary" data-scope="bol">Generate BOL Report</button>
+    </div>
+    <p id="status" class="muted"></p>
+
+    <section id="preview" class="hidden">
+      <div class="row gap">
+        <button id="copy-html">Copy HTML</button>
+        <button id="download-eml">Download .eml</button>
+        <span id="copy-status" class="muted"></span>
+      </div>
+      <h3>Preview</h3>
+      <iframe id="preview-frame" title="Email preview"></iframe>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
