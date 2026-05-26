@@ -2,7 +2,9 @@ import { chromium } from 'playwright';
 import { writeFile } from 'node:fs/promises';
 import { config } from './config.js';
 
-const DEBUG = process.env.DEBUG_DUMP !== '0'; // dump dashboard HTML so selectors can be pinned
+// Set DEBUG_DUMP=1 in .env if you need to inspect the dashboard DOM
+// (e.g. if a layout change breaks the hide-list in the screenshot step).
+const DEBUG = process.env.DEBUG_DUMP === '1';
 const NAV_TIMEOUT = 30_000;
 
 const SEL = {
