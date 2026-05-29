@@ -27,6 +27,11 @@ function img(dataUri, alt) {
   return `<div style="margin:16px 0;"><img src="${dataUri}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto;border:1px solid #eee;border-radius:8px;"/></div>`;
 }
 
+export function buildSubject({ scope, report }) {
+  const recip = config.recipients[scope];
+  return recip.subject(report.generatedAt);
+}
+
 export function buildHtmlEmail({ scope, report }) {
   const images = report.images || {};
   const asOf = asOfPhrase(report.generatedAt);

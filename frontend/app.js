@@ -18,6 +18,7 @@ const els = {
   status: $('#status'),
   preview: $('#preview'),
   previewFrame: $('#preview-frame'),
+  copySubject: $('#copy-subject'),
   copyHtml: $('#copy-html'),
   downloadEml: $('#download-eml'),
   copyStatus: $('#copy-status'),
@@ -61,6 +62,17 @@ els.loginBtn.addEventListener('click', async () => {
 
 document.querySelectorAll('[data-scope]').forEach(btn => {
   btn.addEventListener('click', () => generate(btn.dataset.scope));
+});
+
+els.copySubject.addEventListener('click', async () => {
+  if (!lastResult?.subject) return;
+  try {
+    await navigator.clipboard.writeText(lastResult.subject);
+    els.copyStatus.textContent = `Subject copied: ${lastResult.subject}`;
+  } catch (err) {
+    els.copyStatus.textContent = `Copy failed: ${err.message}`;
+  }
+  setTimeout(() => (els.copyStatus.textContent = ''), 4000);
 });
 
 els.copyHtml.addEventListener('click', async () => {

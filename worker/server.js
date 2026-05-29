@@ -4,7 +4,7 @@ import cors from 'cors';
 import { appendFile } from 'node:fs/promises';
 import { config } from './config.js';
 import { generateReport } from './dashboard.js';
-import { buildHtmlEmail, buildEml } from './email.js';
+import { buildHtmlEmail, buildEml, buildSubject } from './email.js';
 
 async function logUsage(entry) {
   const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
@@ -36,9 +36,10 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
   try {
     const report = await generateReport(scope);
+    const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    res.json({ scope, generatedAt: report.generatedAt, html, eml, images: report.images });
+    res.json({ scope, generatedAt: report.generatedAt, subject, html, eml, images: report.images });
     logUsage({ scope, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
     console.error(`[generate/${scope}] failed:`, err);
