@@ -1,10 +1,6 @@
 function getWorkerUrl() {
   const sessionOverride = sessionStorage.getItem('workerUrl');
-  return (
-    sessionOverride ||
-    window.__WORKER_URL__ ||
-    'http://localhost:3002'
-  );
+  return sessionOverride || window.__WORKER_URL__ || 'http://localhost:3002';
 }
 
 const $ = (sel) => document.querySelector(sel);
@@ -18,17 +14,27 @@ const els = {
   status: $('#status'),
   preview: $('#preview'),
   previewFrame: $('#preview-frame'),
+  previewSubject: $('#preview-subject'),
   copySubject: $('#copy-subject'),
   copyHtml: $('#copy-html'),
   downloadEml: $('#download-eml'),
-  copyStatus: $('#copy-status'),
+  generatedAgo: $('#generated-ago'),
 };
 
 els.workerUrl.value = window.__WORKER_URL__ || '';
 localStorage.removeItem('workerUrl');
 
+// Theme toggle
+const themeToggle = $('#theme-toggle');
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('theme', next);
+});
+
 let teamPassword = sessionStorage.getItem('teamPw') || '';
 let lastResult = null;
+let stageTimer = null;
 
 if (teamPassword) showDash();
 
@@ -38,13 +44,10 @@ els.loginBtn.addEventListener('click', async () => {
 
   const typed = els.workerUrl.value.trim().replace(/\/+$/, '');
   const def = (window.__WORKER_URL__ || '').replace(/\/+$/, '');
-  if (typed && typed !== def) {
-    sessionStorage.setItem('workerUrl', typed);
-  } else {
-    sessionStorage.removeItem('workerUrl');
-  }
-  const workerUrl = getWorkerUrl();
+  if (typed && typed !== def) sessionStorage.setItem('workerUrl', typed);
+  else sessionStorage.removeItem('workerUrl');
 
+  const workerUrl = getWorkerUrl();
   els.loginErr.textContent = '';
   els.loginBtn.disabled = true;
   try {
@@ -68,11 +71,10 @@ els.copySubject.addEventListener('click', async () => {
   if (!lastResult?.subject) return;
   try {
     await navigator.clipboard.writeText(lastResult.subject);
-    els.copyStatus.textContent = `Subject copied: ${lastResult.subject}`;
+    flashCopied(els.copySubject, 'Subject copied');
   } catch (err) {
-    els.copyStatus.textContent = `Copy failed: ${err.message}`;
+    setStatus(els.status, `Copy failed: ${err.message}`, 'error');
   }
-  setTimeout(() => (els.copyStatus.textContent = ''), 4000);
 });
 
 els.copyHtml.addEventListener('click', async () => {
@@ -83,12 +85,11 @@ els.copyHtml.addEventListener('click', async () => {
     await navigator.clipboard.write([
       new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob }),
     ]);
-    els.copyStatus.textContent = 'Copied — paste into a new Outlook message';
+    flashCopied(els.copyHtml, 'Copied — paste into Outlook');
   } catch (err) {
     await navigator.clipboard.writeText(lastResult.html);
-    els.copyStatus.textContent = 'Copied (HTML source)';
+    flashCopied(els.copyHtml, 'Copied (HTML source)');
   }
-  setTimeout(() => (els.copyStatus.textContent = ''), 4000);
 });
 
 els.downloadEml.addEventListener('click', () => {
@@ -102,11 +103,12 @@ els.downloadEml.addEventListener('click', () => {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+  flashCopied(els.downloadEml, 'Downloaded');
 });
 
 async function generate(scope) {
   els.preview.classList.add('hidden');
-  els.status.textContent = `Generating BOL report… (first run can take ~30s while worker wakes)`;
+  startStageSimulation(scope);
   try {
     const r = await fetch(`${getWorkerUrl()}/generate/${scope}`, {
       method: 'POST',
@@ -118,6 +120,7 @@ async function generate(scope) {
       teamPassword = '';
       showLogin();
       els.loginErr.textContent = 'Bad team password';
+      stopStageSimulation();
       return;
     }
     if (!r.ok) {
@@ -126,11 +129,83 @@ async function generate(scope) {
     }
     lastResult = await r.json();
     els.previewFrame.srcdoc = lastResult.html;
+    if (lastResult.subject) {
+      els.previewSubject.innerHTML =
+        `<span class="subject-label">Subject</span>` +
+        `<span class="subject-value"></span>`;
+      els.previewSubject.querySelector('.subject-value').textContent = lastResult.subject;
+    } else {
+      els.previewSubject.innerHTML = '';
+    }
     els.preview.classList.remove('hidden');
-    els.status.textContent = `Generated at ${new Date(lastResult.generatedAt).toLocaleString()}`;
+    stopStageSimulation();
+    setStatus(els.status, `✓ BOL report ready`, 'success');
+    startGeneratedAgo(lastResult.generatedAt);
   } catch (err) {
-    els.status.textContent = `Failed: ${err.message}`;
+    stopStageSimulation();
+    setStatus(els.status, friendlyError(err.message), 'error');
   }
+}
+
+function friendlyError(raw) {
+  if (!raw) return 'Generation failed.';
+  if (/timeout/i.test(raw) || /Timeout/.test(raw)) {
+    return 'Timed out reaching the V3 dashboard — the site may be slow. Try again in a moment.';
+  }
+  if (/DASHBOARD_PASSWORD/.test(raw)) {
+    return 'V3 password missing — check the worker .env file.';
+  }
+  if (/unreachable/i.test(raw) || /Failed to fetch/i.test(raw)) {
+    return 'Cannot reach the worker. The launcher may not be running.';
+  }
+  return `Failed: ${raw}`;
+}
+
+const STAGES = [
+  { at: 0,    label: 'Logging in to V3…' },
+  { at: 2500, label: 'Capturing dashboard…' },
+  { at: 6500, label: 'Building email…' },
+];
+function startStageSimulation(scope) {
+  stopStageSimulation();
+  const start = Date.now();
+  const tick = () => {
+    const elapsed = Date.now() - start;
+    const current = [...STAGES].reverse().find(s => elapsed >= s.at) || STAGES[0];
+    setStatus(els.status, `<span class="spinner"></span> ${current.label}`, '');
+  };
+  tick();
+  stageTimer = setInterval(tick, 400);
+}
+function stopStageSimulation() {
+  if (stageTimer) { clearInterval(stageTimer); stageTimer = null; }
+}
+
+let agoTimer = null;
+function startGeneratedAgo(iso) {
+  if (agoTimer) clearInterval(agoTimer);
+  const update = () => {
+    const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    let text;
+    if (secs < 60) text = `Generated ${secs}s ago`;
+    else if (secs < 3600) text = `Generated ${Math.floor(secs/60)}m ago`;
+    else text = `Generated ${Math.floor(secs/3600)}h ago`;
+    els.generatedAgo.textContent = text;
+  };
+  update();
+  agoTimer = setInterval(update, 5_000);
+}
+
+function setStatus(el, html, kind) {
+  el.innerHTML = html;
+  el.classList.remove('success', 'error');
+  if (kind) el.classList.add(kind);
+}
+
+function flashCopied(btn, statusText) {
+  btn.classList.add('copied');
+  setTimeout(() => btn.classList.remove('copied'), 600);
+  setStatus(els.status, `✓ ${statusText}`, 'success');
 }
 
 function showLogin() {
