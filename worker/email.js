@@ -13,13 +13,73 @@ function fmtDate(iso) {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
-function asOfPhrase(iso) {
-  const d = new Date(iso);
-  // "Please see below for the BOL report as of midnight May 21, 2026"
-  // BOL data reflects the previous day, so we say "midnight <yesterday>".
-  d.setDate(d.getDate() - 1);
-  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Parse a YYYY-MM-DD string as a local date (no timezone shift).
+function parseYMD(s) {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Build a human period description from the applied range + dates.
+// Returns { subjectSuffix, bodyPhrase }.
+function describePeriod(report) {
+  const range = report.range || 'mtd';
+  const from = parseYMD(report.from);
+  const to = parseYMD(report.to);
+
+  // Whole-calendar-month detection (covers Last Month and any month-aligned range).
+  const isFullMonth = from && to
+    && from.getDate() === 1
+    && from.getMonth() === to.getMonth()
+    && from.getFullYear() === to.getFullYear()
+    && to.getDate() === new Date(to.getFullYear(), to.getMonth() + 1, 0).getDate();
+
+  if (range === 'mtd') {
+    // Default: report reflects up to the previous day (data lags one day).
+    const d = parseYMD(report.to) || new Date(report.generatedAt);
+    const prev = new Date(d); prev.setDate(prev.getDate() - 1);
+    return {
+      subjectSuffix: `${MONTHS_SHORT[prev.getMonth()]} ${prev.getDate()}`,
+      bodyPhrase: `as of midnight ${MONTHS[prev.getMonth()]} ${prev.getDate()}, ${prev.getFullYear()}`,
+    };
+  }
+
+  if (isFullMonth || range === 'lastmonth') {
+    const ref = to || from;
+    return {
+      subjectSuffix: `${MONTHS[ref.getMonth()]} ${ref.getFullYear()}`,
+      bodyPhrase: `summary for ${MONTHS[ref.getMonth()]} ${ref.getFullYear()}`,
+    };
+  }
+
+  if (range === 'year' && from) {
+    return {
+      subjectSuffix: `${from.getFullYear()}`,
+      bodyPhrase: `summary for ${from.getFullYear()}`,
+    };
+  }
+
+  // Generic date-range (7d, 30d, quarter, custom, etc.)
+  if (from && to) {
+    const sameYear = from.getFullYear() === to.getFullYear();
+    const fromStr = `${MONTHS_SHORT[from.getMonth()]} ${from.getDate()}`;
+    const toStr = sameYear
+      ? `${MONTHS_SHORT[to.getMonth()]} ${to.getDate()}`
+      : `${MONTHS_SHORT[to.getMonth()]} ${to.getDate()}, ${to.getFullYear()}`;
+    return {
+      subjectSuffix: `${fromStr} – ${toStr}`,
+      bodyPhrase: `for ${fromStr} – ${toStr}, ${to.getFullYear()}`,
+    };
+  }
+
+  // Fallback
+  return {
+    subjectSuffix: report.rangeLabel || 'Report',
+    bodyPhrase: `for ${report.rangeLabel || 'the selected period'}`,
+  };
 }
 
 function img(dataUri, alt) {
@@ -28,19 +88,19 @@ function img(dataUri, alt) {
 }
 
 export function buildSubject({ scope, report }) {
-  const recip = config.recipients[scope];
-  return recip.subject(report.generatedAt);
+  const { subjectSuffix } = describePeriod(report);
+  return `BOL Report - ${subjectSuffix}`;
 }
 
 export function buildHtmlEmail({ scope, report }) {
   const images = report.images || {};
-  const asOf = asOfPhrase(report.generatedAt);
+  const { bodyPhrase } = describePeriod(report);
 
   return `<!doctype html>
 <html><body style="font:14px Arial,sans-serif;color:#222;">
   <p>Good morning team,</p>
-  <p>Please see below for the BOL report as of midnight ${asOf}:</p>
-  ${img(images.dashboard, 'V3 Logistics — BOL Daily Scorecard')}
+  <p>Please see below for the BOL report ${bodyPhrase}:</p>
+  ${img(images.dashboard, 'V3 Logistics — BOL Scorecard')}
 </body></html>`;
 }
 
@@ -57,7 +117,7 @@ function dataUriToBuffer(uri) {
 export function buildEml({ scope, report, html }) {
   const recip = config.recipients[scope];
   const date = fmtDate(report.generatedAt);
-  const subject = recip.subject(report.generatedAt);
+  const subject = buildSubject({ scope, report });
   const boundary = `----=_Part_${Date.now()}`;
   const altBoundary = `----=_Alt_${Date.now()}`;
 

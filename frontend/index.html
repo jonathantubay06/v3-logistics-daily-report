@@ -45,7 +45,26 @@
   </main>
 
   <main id="dash-view" class="card hidden">
-    <h2>Generate today's BOL report</h2>
+    <h2>Generate BOL report</h2>
+
+    <label for="range-select">Time range</label>
+    <div class="range-row">
+      <select id="range-select">
+        <option value="mtd" selected>Month to Date</option>
+        <option value="lastmonth">Last Month</option>
+        <option value="7d">Last 7 Days</option>
+        <option value="30d">Last 30 Days</option>
+        <option value="quarter">This Quarter</option>
+        <option value="year">This Year</option>
+        <option value="custom">Custom…</option>
+      </select>
+      <div id="custom-dates" class="custom-dates hidden">
+        <input type="date" id="range-from" aria-label="From date" />
+        <span class="sep">→</span>
+        <input type="date" id="range-to" aria-label="To date" />
+      </div>
+    </div>
+
     <div class="row">
       <button class="primary" data-scope="bol">Generate BOL Report</button>
       <a class="link-btn" href="https://v3-dashboard-production.up.railway.app" target="_blank" rel="noopener noreferrer">Open Dashboard ↗</a>
@@ -59,6 +78,7 @@
         <button id="download-eml">Download .eml</button>
       </div>
       <h3>Preview</h3>
+      <div id="range-banner" class="range-banner"></div>
       <div class="preview-wrap">
         <div class="preview-header" id="preview-subject"></div>
         <iframe id="preview-frame" title="Email preview"></iframe>

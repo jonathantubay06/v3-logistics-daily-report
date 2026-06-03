@@ -34,13 +34,14 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   const start = Date.now();
   const ua = req.headers['user-agent'] || '';
   const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+  const { range, from, to } = req.body || {};
   try {
-    const report = await generateReport(scope);
+    const report = await generateReport(scope, { range, from, to });
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    res.json({ scope, generatedAt: report.generatedAt, subject, html, eml, images: report.images });
-    logUsage({ scope, ok: true, durationMs: Date.now() - start, ip, ua });
+    res.json({ scope, generatedAt: report.generatedAt, range: report.range, rangeLabel: report.rangeLabel, from: report.from, to: report.to, subject, html, eml, images: report.images });
+    logUsage({ scope, range: report.range, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
     console.error(`[generate/${scope}] failed:`, err);
     res.status(500).json({ error: err.message || 'generation failed' });

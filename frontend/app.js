@@ -15,6 +15,11 @@ const els = {
   preview: $('#preview'),
   previewFrame: $('#preview-frame'),
   previewSubject: $('#preview-subject'),
+  rangeBanner: $('#range-banner'),
+  rangeSelect: $('#range-select'),
+  customDates: $('#custom-dates'),
+  rangeFrom: $('#range-from'),
+  rangeTo: $('#range-to'),
   copySubject: $('#copy-subject'),
   copyHtml: $('#copy-html'),
   downloadEml: $('#download-eml'),
@@ -63,6 +68,11 @@ els.loginBtn.addEventListener('click', async () => {
   }
 });
 
+// Show/hide custom date inputs based on range selection
+els.rangeSelect.addEventListener('change', () => {
+  els.customDates.classList.toggle('hidden', els.rangeSelect.value !== 'custom');
+});
+
 document.querySelectorAll('[data-scope]').forEach(btn => {
   btn.addEventListener('click', () => generate(btn.dataset.scope));
 });
@@ -107,13 +117,30 @@ els.downloadEml.addEventListener('click', () => {
 });
 
 async function generate(scope) {
+  const range = els.rangeSelect.value;
+  const payload = { range };
+  if (range === 'custom') {
+    const from = els.rangeFrom.value;
+    const to = els.rangeTo.value;
+    if (!from || !to) {
+      setStatus(els.status, 'Pick both From and To dates for a custom range.', 'error');
+      return;
+    }
+    if (from > to) {
+      setStatus(els.status, 'From date must be on or before To date.', 'error');
+      return;
+    }
+    payload.from = from;
+    payload.to = to;
+  }
+
   els.preview.classList.add('hidden');
   startStageSimulation(scope);
   try {
     const r = await fetch(`${getWorkerUrl()}/generate/${scope}`, {
       method: 'POST',
       headers: { 'X-Team-Password': teamPassword, 'Content-Type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify(payload),
     });
     if (r.status === 401) {
       sessionStorage.removeItem('teamPw');
@@ -137,9 +164,11 @@ async function generate(scope) {
     } else {
       els.previewSubject.innerHTML = '';
     }
+    renderRangeBanner(lastResult);
     els.preview.classList.remove('hidden');
     stopStageSimulation();
-    setStatus(els.status, `✓ BOL report ready`, 'success');
+    const lbl = lastResult.rangeLabel ? ` · ${lastResult.rangeLabel}` : '';
+    setStatus(els.status, `✓ BOL report ready${lbl}`, 'success');
     startGeneratedAgo(lastResult.generatedAt);
   } catch (err) {
     stopStageSimulation();
@@ -194,6 +223,32 @@ function startGeneratedAgo(iso) {
   };
   update();
   agoTimer = setInterval(update, 5_000);
+}
+
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtSpan(from, to) {
+  const p = (s) => {
+    if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return { y, m, d };
+  };
+  const f = p(from), t = p(to);
+  if (!f || !t) return '';
+  const fStr = `${MONTHS_SHORT[f.m - 1]} ${f.d}, ${f.y}`;
+  const tStr = `${MONTHS_SHORT[t.m - 1]} ${t.d}, ${t.y}`;
+  return fStr === tStr ? fStr : `${fStr} → ${tStr}`;
+}
+
+function renderRangeBanner(result) {
+  const label = result.rangeLabel || 'Month to Date';
+  const span = fmtSpan(result.from, result.to);
+  els.rangeBanner.innerHTML =
+    `<span class="rb-icon">🗓️</span>` +
+    `<span>Range: <span class="rb-label"></span>` +
+    (span ? ` <span class="rb-dates"></span>` : '') +
+    `</span>`;
+  els.rangeBanner.querySelector('.rb-label').textContent = label;
+  if (span) els.rangeBanner.querySelector('.rb-dates').textContent = `(${span})`;
 }
 
 function setStatus(el, html, kind) {

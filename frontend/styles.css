@@ -200,6 +200,56 @@ button.copied {
 .row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
 .row.gap { margin: 18px 0; }
 
+/* Time-range selector */
+.range-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+select#range-select {
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--input-bg);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 180px;
+  transition: all 0.18s ease;
+  /* Tell the browser to render the native option popup for the active theme. */
+  color-scheme: light;
+}
+[data-theme="dark"] select#range-select { color-scheme: dark; }
+select#range-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-bg-focus);
+  box-shadow: var(--accent-glow);
+}
+/* Explicit option colors so the dropdown list is legible in both themes. */
+select#range-select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+[data-theme="dark"] select#range-select option {
+  background: #1a2236;
+  color: #e2e8f0;
+}
+.custom-dates {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.custom-dates input[type="date"] {
+  width: auto;
+  margin-top: 0;
+  padding: 10px 12px;
+}
+.custom-dates .sep { color: var(--muted); }
+
 .err { color: var(--err); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .hidden { display: none !important; }
 
@@ -251,6 +301,24 @@ details.advanced[open] summary { color: var(--accent); }
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Range banner — confirms what the user selected for this report */
+.range-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--ink);
+  font-size: 14px;
+}
+.range-banner:empty { display: none; }
+.range-banner .rb-icon { font-size: 16px; }
+.range-banner .rb-label { font-weight: 700; color: var(--accent); }
+.range-banner .rb-dates { color: var(--muted); }
 
 .preview-wrap {
   margin-top: 16px;
