@@ -1,7 +1,10 @@
-// Starts worker + Cloudflare Quick Tunnel, captures URL, writes it into
-// frontend/config.js, commits + pushes so Netlify redeploys.
+// Supervised launcher: keeps the worker AND the Cloudflare Quick Tunnel alive.
+// If either process dies, it is automatically respawned (with backoff). When the
+// tunnel respawns it gets a new URL, which is written to frontend/config.js and
+// pushed so Netlify redeploys.
 //
 // Worker runs on port 3002 so it doesn't collide with the Intac worker (3001).
+// Usage: node launch.js   (or double-click launch.bat). Ctrl+C to stop.
 
 import { spawn, execSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -10,49 +13,82 @@ import path from 'node:path';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(ROOT, 'frontend', 'config.js');
+const WORKER_PORT = process.env.PORT || '3002';
 const CLOUDFLARED = process.env.CLOUDFLARED_PATH
   || 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe';
-const LOCAL_PORT = process.env.PORT || '3002';
-// Quick-tunnel hostnames are always multi-word with hyphens (e.g.
-// "groundwater-tests-apache-eden"). Require at least one hyphen so we never
-// accidentally capture "api.trycloudflare.com" from other log lines.
+// Quick-tunnel hostnames are always multi-word with hyphens. Require at least
+// one hyphen so we never capture "api.trycloudflare.com" from other log lines.
 const TUNNEL_URL_RE = /(https:\/\/[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com)/;
 
+const BACKOFF_MIN = 2000;
+const BACKOFF_MAX = 30000;
+
+let shuttingDown = false;
+let worker = null;
+let cf = null;
+let currentUrl = null;
+
 function log(tag, msg) {
-  process.stdout.write(`[${tag}] ${msg.endsWith('\n') ? msg : msg + '\n'}`);
+  const t = new Date().toTimeString().slice(0, 8);
+  process.stdout.write(`[${t}] [${tag}] ${msg.endsWith('\n') ? msg : msg + '\n'}`);
 }
 
-log('launch', 'starting v3-bol worker (node server.js)...');
-const worker = spawn(process.execPath, ['server.js'], {
-  cwd: path.join(ROOT, 'worker'),
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-worker.stdout.on('data', d => process.stdout.write(`[worker] ${d}`));
-worker.stderr.on('data', d => process.stderr.write(`[worker] ${d}`));
-worker.on('exit', code => log('launch', `worker exited with code ${code}`));
+// ---------- supervised worker ----------
+function startWorker(attempt = 0) {
+  if (shuttingDown) return;
+  log('launch', `starting v3-bol worker (node server.js) on :${WORKER_PORT}...`);
+  worker = spawn(process.execPath, ['server.js'], {
+    cwd: path.join(ROOT, 'worker'),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  worker.stdout.on('data', d => process.stdout.write(`[worker] ${d}`));
+  worker.stderr.on('data', d => process.stderr.write(`[worker] ${d}`));
+  worker.on('exit', (code) => {
+    if (shuttingDown) return;
+    const delay = Math.min(BACKOFF_MIN * 2 ** attempt, BACKOFF_MAX);
+    log('launch', `worker exited (code ${code}) — restarting in ${Math.round(delay/1000)}s`);
+    setTimeout(() => startWorker(attempt + 1), delay);
+  });
+  setTimeout(() => { if (worker && !worker.killed) attempt = 0; }, 15000);
+}
 
-log('launch', 'starting Cloudflare Quick Tunnel...');
-const cf = spawn(CLOUDFLARED, ['tunnel', '--url', `http://localhost:${LOCAL_PORT}`, '--no-autoupdate'], {
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
+// ---------- supervised tunnel ----------
+function startTunnel(attempt = 0) {
+  if (shuttingDown) return;
+  log('launch', 'starting Cloudflare Quick Tunnel...');
+  let captured = false;
+  cf = spawn(CLOUDFLARED, ['tunnel', '--url', `http://localhost:${WORKER_PORT}`, '--no-autoupdate'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 
-let urlPushed = false;
-cf.stdout.on('data', handleCfOutput);
-cf.stderr.on('data', handleCfOutput);
-cf.on('exit', code => log('launch', `tunnel exited with code ${code}`));
+  const onData = (data) => {
+    const s = data.toString();
+    process.stdout.write(`[tunnel] ${s}`);
+    if (captured) return;
+    const m = s.match(TUNNEL_URL_RE);
+    if (m) {
+      captured = true;
+      updateAndPush(m[1]).catch(err => log('launch', `update failed: ${err.message}`));
+    }
+  };
+  cf.stdout.on('data', onData);
+  cf.stderr.on('data', onData);
 
-function handleCfOutput(data) {
-  const s = data.toString();
-  process.stdout.write(`[tunnel] ${s}`);
-  if (urlPushed) return;
-  const m = s.match(TUNNEL_URL_RE);
-  if (m) {
-    urlPushed = true;
-    updateAndPush(m[1]).catch(err => log('launch', `update failed: ${err.message}`));
-  }
+  cf.on('exit', (code) => {
+    if (shuttingDown) return;
+    const delay = Math.min(BACKOFF_MIN * 2 ** attempt, BACKOFF_MAX);
+    log('launch', `tunnel exited (code ${code}) — restarting in ${Math.round(delay/1000)}s`);
+    setTimeout(() => startTunnel(attempt + 1), delay);
+  });
+  setTimeout(() => { if (cf && !cf.killed) attempt = 0; }, 15000);
 }
 
 async function updateAndPush(url) {
+  if (url === currentUrl) {
+    log('launch', 'tunnel URL unchanged — nothing to push');
+    return;
+  }
+  currentUrl = url;
   log('launch', `>>> tunnel URL captured: ${url}`);
   const existing = await readFile(CONFIG_PATH, 'utf8');
   const next = existing.replace(
@@ -60,7 +96,7 @@ async function updateAndPush(url) {
     `window.__WORKER_URL__ = '${url}';`
   );
   if (next === existing) {
-    log('launch', 'config.js already up to date');
+    log('launch', 'config.js already up to date (no change to push)');
     return;
   }
   await writeFile(CONFIG_PATH, next);
@@ -75,15 +111,21 @@ async function updateAndPush(url) {
     log('launch', '>>> pushed. Netlify will redeploy in ~30-60s.');
   } catch (err) {
     log('launch', `git push failed: ${err.message}`);
-    log('launch', 'tunnel still running; paste URL into the Worker URL field manually.');
+    log('launch', 'tunnel is still running; paste the URL into the Worker URL field manually.');
   }
 }
 
+// ---------- cleanup ----------
 function shutdown() {
+  shuttingDown = true;
   log('launch', 'shutting down...');
-  try { worker.kill(); } catch {}
-  try { cf.kill(); } catch {}
+  try { worker && worker.kill(); } catch {}
+  try { cf && cf.kill(); } catch {}
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// ---------- go ----------
+startWorker();
+startTunnel();
