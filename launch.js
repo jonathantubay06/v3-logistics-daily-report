@@ -13,7 +13,10 @@ const CONFIG_PATH = path.join(ROOT, 'frontend', 'config.js');
 const CLOUDFLARED = process.env.CLOUDFLARED_PATH
   || 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe';
 const LOCAL_PORT = process.env.PORT || '3002';
-const TUNNEL_URL_RE = /(https:\/\/[a-z0-9-]+\.trycloudflare\.com)/;
+// Quick-tunnel hostnames are always multi-word with hyphens (e.g.
+// "groundwater-tests-apache-eden"). Require at least one hyphen so we never
+// accidentally capture "api.trycloudflare.com" from other log lines.
+const TUNNEL_URL_RE = /(https:\/\/[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com)/;
 
 function log(tag, msg) {
   process.stdout.write(`[${tag}] ${msg.endsWith('\n') ? msg : msg + '\n'}`);
