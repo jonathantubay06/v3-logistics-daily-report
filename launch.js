@@ -126,6 +126,10 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+// Never let an unexpected error kill the supervisor — log and keep running.
+process.on('uncaughtException', (e) => log('launch', `uncaught exception (continuing): ${e && e.stack || e}`));
+process.on('unhandledRejection', (e) => log('launch', `unhandled rejection (continuing): ${e && e.stack || e}`));
+
 // ---------- go ----------
 startWorker();
 startTunnel();
