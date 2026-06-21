@@ -1,3 +1,3 @@
 // Default worker URL. Auto-updated by launch.js on each tunnel start.
 // Override per-session via the "Worker URL" field on the sign-in screen.
-window.__WORKER_URL__ = 'https://oct-dat-writing-valve.trycloudflare.com';
+window.__WORKER_URL__ = 'https://technologies-hardwood-outreach-quality.trycloudflare.com';
