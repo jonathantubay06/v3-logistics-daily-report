@@ -28,7 +28,10 @@
 
   <main id="login-view" class="card">
     <h2>Sign in</h2>
-    <p class="muted">Enter the team password to continue.</p>
+    <p class="muted">Enter your name and the team password to continue.</p>
+    <label>Your name
+      <input id="user-name" type="text" autocomplete="name" placeholder="e.g. Emmi" />
+    </label>
     <label>Team password
       <input id="team-pw" type="password" autocomplete="current-password" />
     </label>
@@ -45,7 +48,10 @@
   </main>
 
   <main id="dash-view" class="card hidden">
-    <h2>Generate BOL report</h2>
+    <div class="dash-head">
+      <h2>Generate BOL report</h2>
+      <span class="whoami">Signed in as <strong id="whoami-name"></strong> · <a href="#" id="switch-user">not you?</a></span>
+    </div>
 
     <label for="range-select">Time range</label>
     <div class="range-row">

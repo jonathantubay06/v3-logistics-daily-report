@@ -7,10 +7,13 @@ const $ = (sel) => document.querySelector(sel);
 const els = {
   loginView: $('#login-view'),
   dashView: $('#dash-view'),
+  userName: $('#user-name'),
   teamPw: $('#team-pw'),
   workerUrl: $('#worker-url'),
   loginBtn: $('#login-btn'),
   loginErr: $('#login-err'),
+  whoamiName: $('#whoami-name'),
+  switchUser: $('#switch-user'),
   status: $('#status'),
   preview: $('#preview'),
   previewFrame: $('#preview-frame'),
@@ -29,6 +32,18 @@ const els = {
 els.workerUrl.value = window.__WORKER_URL__ || '';
 localStorage.removeItem('workerUrl');
 
+// Remembered across visits (not sensitive — just a display name for the usage log).
+let userName = localStorage.getItem('userName') || '';
+els.userName.value = userName;
+
+els.switchUser.addEventListener('click', (e) => {
+  e.preventDefault();
+  sessionStorage.removeItem('teamPw');
+  teamPassword = '';
+  showLogin();
+  els.userName.focus();
+});
+
 // Theme toggle
 const themeToggle = $('#theme-toggle');
 themeToggle.addEventListener('click', () => {
@@ -44,7 +59,9 @@ let stageTimer = null;
 if (teamPassword) showDash();
 
 els.loginBtn.addEventListener('click', async () => {
+  const name = els.userName.value.trim();
   const pw = els.teamPw.value.trim();
+  if (!name) { els.loginErr.textContent = 'Please enter your name.'; els.userName.focus(); return; }
   if (!pw) return;
 
   const typed = els.workerUrl.value.trim().replace(/\/+$/, '');
@@ -59,7 +76,9 @@ els.loginBtn.addEventListener('click', async () => {
     const r = await fetch(`${workerUrl}/health`);
     if (!r.ok) throw new Error('worker unreachable');
     teamPassword = pw;
+    userName = name;
     sessionStorage.setItem('teamPw', pw);
+    localStorage.setItem('userName', name);
     showDash();
   } catch (err) {
     els.loginErr.textContent = `Cannot reach worker at ${workerUrl}`;
@@ -139,7 +158,11 @@ async function generate(scope) {
   try {
     const r = await fetch(`${getWorkerUrl()}/generate/${scope}`, {
       method: 'POST',
-      headers: { 'X-Team-Password': teamPassword, 'Content-Type': 'application/json' },
+      headers: {
+        'X-Team-Password': teamPassword,
+        'X-User-Name': userName || 'Unknown',
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
     });
     if (r.status === 401) {
@@ -270,6 +293,7 @@ function showLogin() {
 function showDash() {
   els.loginView.classList.add('hidden');
   els.dashView.classList.remove('hidden');
+  els.whoamiName.textContent = userName || 'Unknown';
 }
 function htmlToText(html) {
   const d = document.createElement('div');

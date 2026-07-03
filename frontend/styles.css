@@ -106,6 +106,22 @@ h2 { margin: 0 0 6px; font-weight: 700; }
 h3 { margin: 22px 0 8px; color: var(--accent); font-weight: 600; }
 p.muted { color: var(--muted); margin: 4px 0 18px; }
 
+.dash-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.whoami {
+  font-size: 12px;
+  color: var(--muted);
+}
+.whoami strong { color: var(--accent); }
+.whoami a { color: var(--muted); text-decoration: underline; }
+.whoami a:hover { color: var(--accent); }
+
 label {
   display: block;
   font-size: 11px;
