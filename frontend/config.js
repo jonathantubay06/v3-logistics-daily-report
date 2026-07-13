@@ -1,3 +1,3 @@
 // Default worker URL. Auto-updated by launch.js on each tunnel start.
 // Override per-session via the "Worker URL" field on the sign-in screen.
-window.__WORKER_URL__ = 'https://hiring-affordable-consumers-suggestion.trycloudflare.com';
+window.__WORKER_URL__ = 'https://fifteen-lambda-adjustable-partition.trycloudflare.com';
