@@ -1,3 +1,3 @@
 // Default worker URL. Auto-updated by launch.js on each tunnel start.
 // Override per-session via the "Worker URL" field on the sign-in screen.
-window.__WORKER_URL__ = 'https://beings-tops-valve-midi.trycloudflare.com';
+window.__WORKER_URL__ = 'https://joshua-str-scenic-imported.trycloudflare.com';
