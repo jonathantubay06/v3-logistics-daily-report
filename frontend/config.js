@@ -1,3 +1,3 @@
 // Default worker URL. Auto-updated by launch.js on each tunnel start.
 // Override per-session via the "Worker URL" field on the sign-in screen.
-window.__WORKER_URL__ = 'https://pizza-tasks-pavilion-research.trycloudflare.com';
+window.__WORKER_URL__ = 'https://hurricane-criterion-solid-either.trycloudflare.com';
