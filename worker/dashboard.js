@@ -35,6 +35,15 @@ async function waitForDataLoaded(page) {
     .waitFor({ state: 'visible', timeout: NAV_TIMEOUT }).catch(() => {});
   // Small buffer for chart animation to settle before the screenshot.
   await page.waitForTimeout(900);
+  // A fixed buffer is not enough on the faster v3.sentryxp.com host (charts
+  // were captured mid-animation), so jump every Chart.js chart to its final frame.
+  await page.evaluate(() => {
+    if (!window.Chart || !window.Chart.instances) return;
+    Object.values(window.Chart.instances).forEach((c) => {
+      c.options.animation = false;
+      c.update('none');
+    });
+  }).catch(() => {});
 }
 
 // Valid dashboard presets (data-preset values) → short label used to rewrite
@@ -84,6 +93,8 @@ export async function generateReport(scope, opts = {}) {
     await page.evaluate((label) => {
       const hide = (sel) => document.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
       hide('header');
+      hide('nav.topnav');   // app nav bar (added 2026-09-30 deploy)
+      hide('.rq');          // internal "Invoice review queue" card (same deploy)
       hide('.outstanding-card');
       hide('.ob-wrap');
       hide('.table-card');
@@ -134,6 +145,20 @@ export async function generateReport(scope, opts = {}) {
   }
 }
 
+// Start of this quarter / year through today, as YYYY-MM-DD (server local time,
+// same clock the dashboard's own date inputs use in the headless browser).
+function presetDates(range) {
+  const now = new Date();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (range === 'quarter') {
+    return { from: ymd(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)), to: ymd(now) };
+  }
+  if (range === 'year') {
+    return { from: ymd(new Date(now.getFullYear(), 0, 1)), to: ymd(now) };
+  }
+  return null;
+}
+
 async function applyRange(page, range, from, to) {
   if (range === 'custom') {
     if (!from || !to) throw new Error('Custom range requires both from and to dates');
@@ -144,7 +169,19 @@ async function applyRange(page, range, from, to) {
     await page.locator(SEL.dateFrom).dispatchEvent('change');
   } else if (range !== 'mtd') {
     // MTD is the default view on load; only click for the others.
-    await page.locator(SEL.presetBtn(range)).click();
+    const btn = page.locator(SEL.presetBtn(range));
+    if (await btn.count()) {
+      await btn.click();
+    } else {
+      // The 2026-09-30 dashboard deploy dropped the quarter/year buttons;
+      // fill the same span into the custom date inputs instead.
+      const dates = presetDates(range);
+      if (!dates) throw new Error(`Dashboard has no "${range}" preset`);
+      await page.locator(SEL.dateFrom).fill(dates.from);
+      await page.locator(SEL.dateTo).fill(dates.to);
+      await page.locator(SEL.dateTo).dispatchEvent('change');
+      await page.locator(SEL.dateFrom).dispatchEvent('change');
+    }
   } else {
     // Already on MTD from initial load — nothing to re-apply.
     return;

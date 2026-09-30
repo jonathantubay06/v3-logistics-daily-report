@@ -3,7 +3,7 @@ function splitList(s) {
 }
 
 export const config = {
-  dashboardUrl: process.env.DASHBOARD_URL || 'https://v3-dashboard-production.up.railway.app',
+  dashboardUrl: process.env.DASHBOARD_URL || 'https://v3.sentryxp.com',
   dashboardPassword: process.env.DASHBOARD_PASSWORD || '',
 
   teamPassword: process.env.TEAM_PASSWORD || 'change-me',
