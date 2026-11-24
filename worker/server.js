@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { appendFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import { config } from './config.js';
 import { generateReport } from './dashboard.js';
 import { buildHtmlEmail, buildEml, buildSubject } from './email.js';
@@ -41,7 +42,15 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    res.json({ scope, generatedAt: report.generatedAt, range: report.range, rangeLabel: report.rangeLabel, from: report.from, to: report.to, subject, html, eml, images: report.images });
+    // Reply carries large inline screenshots: gzip it (only when the client accepts gzip) so it downloads faster.
+    const payload = Buffer.from(JSON.stringify({ scope, generatedAt: report.generatedAt, range: report.range, rangeLabel: report.rangeLabel, from: report.from, to: report.to, subject, html, eml, images: report.images }));
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    if (/gzip/.test(req.headers['accept-encoding'] || '')) {
+      res.set('Content-Encoding', 'gzip');
+      res.send(gzipSync(payload));
+    } else {
+      res.send(payload);
+    }
     logUsage({ scope, user, range: report.range, ok: true, durationMs: Date.now() - start, ip, ua });
   } catch (err) {
     console.error(`[generate/${scope}] failed:`, err);
