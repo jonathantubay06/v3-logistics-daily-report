@@ -10,9 +10,9 @@ Patterned on the Intac Daily Report Generator. Listens on port **3002**.
 You ──browser──▶ Netlify (frontend) ──fetch──▶ direct HTTPS via Caddy (v3.23-137-105-53.sslip.io; Tailscale Funnel :8443 is the slow fallback) ──▶ Advin VPS worker :3002 ──Playwright──▶ v3.sentryxp.com
 ```
 
-- **`frontend/`** — static site served by Netlify (free tier). Login screen, `Generate BOL Report` button, preview, `Copy HTML` / `Download .eml` handoff. `config.js` holds the worker URL (the Funnel address above).
+- **`frontend/`** — static site served by Netlify (free tier). Login screen, `Generate BOL Report` button, preview, `Copy HTML` / `Download .eml` handoff. `config.js` holds the worker URL (the Caddy host `https://v3.23-137-105-53.sslip.io`).
 - **`worker/`** — Node + Express + Playwright. Runs on the Advin VPS at `/opt/reporttools/v3bol` as the systemd service `report-v3bol` (logs: `journalctl -u report-v3bol`). Signs into the V3 dashboard (`v3.sentryxp.com`) with the dashboard password, hides every page element that isn't in Emmi's email (V3 header, Awaiting Tickets widget, Outstanding BOLs banner, several extra chart cards, Driver Performance / Daily Load Detail tables, footer), then captures a full-page screenshot.
-- **`launch.js` / `launch.bat`** — retired since 2026-08-25 (the old PC worker with a Cloudflare Quick Tunnel). Kept only for local development; the real worker is on the VPS. If the VPS is down, see [LOCAL-FALLBACK.md](LOCAL-FALLBACK.md).
+- If the VPS is down, see [LOCAL-FALLBACK.md](LOCAL-FALLBACK.md) (`worker/start-local-worker.bat`). The old PC launcher with a Cloudflare Quick Tunnel (`launch.js` / `launch.bat`) was removed on 2026-11-24.
 
 ## Daily flow
 
@@ -31,13 +31,7 @@ cp .env.example .env
 # Fill DASHBOARD_PASSWORD, TEAM_PASSWORD
 ```
 
-Then from the repo root:
-
-```bash
-node launch.js
-```
-
-Or double-click `launch.bat`.
+Then `node server.js` inside `worker/` (port 3002) and put `http://localhost:3002` in the page's worker URL box.
 
 ## When the V3 dashboard changes
 
@@ -48,7 +42,6 @@ If the screenshot starts including or missing something, the dashboard layout ch
 ```
 V3 BOL daily report/
 ├── README.md            ← you are here
-├── launch.js / .bat     ← retired PC boot script (local dev only)
 ├── LOCAL-FALLBACK.md    ← what to do if the VPS is down
 ├── netlify.toml         ← Netlify build config (publish frontend/)
 ├── frontend/
@@ -65,8 +58,12 @@ V3 BOL daily report/
     └── package.json
 ```
 
-## Logs and time zones (since 2026-11-24)
+## Logs, time zones and safety (since 2026-11-24)
 
-- Dates the client sees (report "today", ranges, email subject and body) use US Central (`REPORT_TIMEZONE`, default `America/Chicago`).
-- `worker/access.log` has one JSON line per request (not `/health`): `ts` (UTC), `logTime` (Philippine time, `LOG_TIMEZONE`), `id`, `status`, `event` (`finish` or `aborted`), `user`, `userTz`, scope/range, `buildMs`, `totalMs`, `bytes`, `gzip`, `ip`, `ua`, `error`. The same `id` comes back as the `X-Request-Id` header and in error messages as "(ref ...)". Code: `worker/request-log.js`.
-- On the VPS: `tail -f /opt/reporttools/<tool>/worker/access.log` or `journalctl -u report-<tool> -f`.
+All of this lives in `worker/ops.js` (the same file in the Intac, V3 BOL and Kingdomland workers).
+
+- **Time zones.** Dates the client sees (report "today", date ranges, email subject and body) use US Central (`REPORT_TIMEZONE`, default `America/Chicago`); the headless browser runs in that zone too. Log times are Philippine time (`LOG_TIMEZONE`, default `Asia/Manila`) for debugging.
+- **Transaction log.** `worker/access.log` gets one JSON line per request (not `/health`): `ts` (UTC), `logTime`, `id`, `status`, `event` (`finish` or `aborted`), `user`, `userTz`, scope/range, `buildMs`, `totalMs`, `bytes`, `gzip`, `ip`, `ua`, `warnings`, `error`. The same `id` is returned as the `X-Request-Id` header and shown in page errors as "(ref ...)". On the VPS: `tail -f /opt/reporttools/<tool>/worker/access.log` or `journalctl -u report-<tool> -f`. The file is rotated weekly by `/etc/logrotate.d/reporttools`.
+- **Alerts.** A failed report, a report that was built but never reached the page, a report with suspiciously small screenshots, and a blocked password guesser are sent to Jojo's alert hub on the VPS (`ALERT_HUB_KEY` in the worker `.env`); the hub handles muting and repeats.
+- **Team password.** Checked in constant time; an address with 10 wrong passwords in an hour gets HTTP 429 for the rest of that hour (`LOGIN_FAIL_LIMIT`).
+- **Smaller replies.** The web page sends `X-Eml-On-Demand: 1`, so the reply leaves out the `.eml` (and V3's raw images), which repeat every screenshot; Download fetches `GET /eml/<id>` (kept 30 minutes). Scripted callers without that header, such as Emmi's GitHub flow, still get the full reply. Replies are gzipped when the caller accepts gzip.

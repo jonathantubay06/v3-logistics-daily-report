@@ -5,23 +5,33 @@ import { gzipSync } from 'node:zlib';
 import { config } from './config.js';
 import { generateReport } from './dashboard.js';
 import { buildHtmlEmail, buildEml, buildSubject } from './email.js';
-import { transactionLog, REPORT_TZ } from './request-log.js';
+import {
+  transactionLog, teamPasswordGuard, REPORT_TZ,
+  stashEml, emlRoute, wantsEmlOnDemand, checkImages, runExclusive,
+} from './ops.js';
 
+const TOOL = 'v3bol';
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(cors({ origin: config.allowedOrigins, credentials: false }));
-// One log line per request (see request-log.js): UTC + Philippine time, user, timings, size, errors.
-app.use(transactionLog('v3bol'));
+// One log line per request, alerts on failures (see ops.js).
+app.use(transactionLog(TOOL));
+const requireTeamPassword = teamPasswordGuard(TOOL, config.teamPassword);
 
-function requireTeamPassword(req, res, next) {
-  const token = req.headers['x-team-password'];
-  if (!token || token !== config.teamPassword) {
-    return res.status(401).json({ error: 'unauthorized' });
+// Large replies (screenshots): gzip when the client accepts it.
+function sendJson(req, res, obj) {
+  const payload = Buffer.from(JSON.stringify(obj));
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  if (/gzip/.test(req.headers['accept-encoding'] || '')) {
+    res.set('Content-Encoding', 'gzip');
+    return res.send(gzipSync(payload));
   }
-  next();
+  return res.send(payload);
 }
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+app.get('/eml/:id', requireTeamPassword, emlRoute);
 
 app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   const scope = req.params.scope;
@@ -30,24 +40,35 @@ app.post('/generate/:scope', requireTeamPassword, async (req, res) => {
   }
   const { range, from, to } = req.body || {};
   req.ctx.extra = { scope, range: range || 'mtd', from, to };
+  const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (range === 'custom' && (!isDate(from) || !isDate(to) || from > to)) {
+    return res.status(400).json({ error: 'custom range needs from and to as YYYY-MM-DD, with from on or before to' });
+  }
   const start = Date.now();
   try {
-    // Dates the client sees (dashboard "today", subject, "as of midnight") are US Central; see request-log.js.
-    const report = await generateReport(scope, { range, from, to, timeZone: REPORT_TZ });
+    // Dates the client sees (dashboard "today", subject, "as of midnight") are US Central; see ops.js.
+    // One report at a time per worker; a second request waits for the first.
+    const report = await runExclusive(() => generateReport(scope, { range, from, to, timeZone: REPORT_TZ }));
     req.ctx.buildMs = Date.now() - start;
     req.ctx.extra.range = report.range;
+    req.ctx.warnings.push(...checkImages(report.images));
     const subject = buildSubject({ scope, report });
     const html = buildHtmlEmail({ scope, report });
     const eml = buildEml({ scope, report, html });
-    // Reply carries large inline screenshots: gzip it (only when the client accepts gzip) so it downloads faster.
-    const payload = Buffer.from(JSON.stringify({ scope, generatedAt: report.generatedAt, range: report.range, rangeLabel: report.rangeLabel, from: report.from, to: report.to, requestId: req.ctx.id, subject, html, eml, images: report.images }));
-    res.set('Content-Type', 'application/json; charset=utf-8');
-    if (/gzip/.test(req.headers['accept-encoding'] || '')) {
-      res.set('Content-Encoding', 'gzip');
-      res.send(gzipSync(payload));
+    const reply = {
+      scope, generatedAt: report.generatedAt, range: report.range, rangeLabel: report.rangeLabel,
+      from: report.from, to: report.to, requestId: req.ctx.id, warnings: req.ctx.warnings, subject, html,
+    };
+    if (wantsEmlOnDemand(req)) {
+      // The web page: no .eml and no raw images (both repeat the screenshot already inside html).
+      stashEml(req.ctx.id, eml);
+      reply.emlId = req.ctx.id;
     } else {
-      res.send(payload);
+      // Scripted callers (Emmi's GitHub flow) keep the full reply.
+      reply.eml = eml;
+      reply.images = report.images;
     }
+    sendJson(req, res, reply);
   } catch (err) {
     console.error(`[generate/${scope}] ${req.ctx.id} failed:`, err);
     req.ctx.buildMs = Date.now() - start;

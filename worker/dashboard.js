@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { writeFile } from 'node:fs/promises';
 import { config } from './config.js';
-import { REPORT_TZ, zonedParts, ymdInTz } from './request-log.js';
+import { REPORT_TZ, zonedParts, ymdInTz } from './ops.js';
 
 // Set DEBUG_DUMP=1 in .env if you need to inspect the dashboard DOM.
 const DEBUG = process.env.DEBUG_DUMP === '1';
@@ -69,10 +69,10 @@ export async function generateReport(scope, opts = {}) {
   const browser = await chromium.launch({ headless: true });
   // The dashboard computes "today" and its date presets in the browser's clock: run it in US time.
   const timeZone = opts.timeZone || REPORT_TZ;
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1200 }, deviceScaleFactor: 2, timezoneId: timeZone });
-  const page = await ctx.newPage();
-
+  let ctx;
   try {
+    ctx = await browser.newContext({ viewport: { width: 1440, height: 1200 }, deviceScaleFactor: 2, timezoneId: timeZone });
+    const page = await ctx.newPage();
     await login(page);
     // Wait for the initial (MTD) data load to finish rendering.
     await waitForDataLoaded(page);
@@ -144,8 +144,9 @@ export async function generateReport(scope, opts = {}) {
       images: { dashboard: dashboardImg },
     };
   } finally {
-    await ctx.close();
-    await browser.close();
+    // Always shut the browser, even if the context never opened.
+    await ctx?.close().catch(() => {});
+    await browser.close().catch(() => {});
   }
 }
 
@@ -204,4 +205,9 @@ async function login(page) {
     page.waitForURL((u) => !/login/i.test(u.toString()) && u.toString() !== config.dashboardUrl, { timeout: NAV_TIMEOUT }),
     page.locator(SEL.loginPassword).waitFor({ state: 'detached', timeout: NAV_TIMEOUT }),
   ]).catch(() => {});
+  // Still on the login form = wrong DASHBOARD_PASSWORD or the dashboard is down: fail loudly
+  // instead of sending a screenshot of the login page.
+  if (await page.locator(SEL.loginPassword).isVisible().catch(() => false)) {
+    throw new Error('V3 dashboard login failed (still on the login page)');
+  }
 }
