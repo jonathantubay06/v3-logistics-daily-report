@@ -64,3 +64,9 @@ V3 BOL daily report/
     ├── .env.example
     └── package.json
 ```
+
+## Logs and time zones (since 2026-11-24)
+
+- Dates the client sees (report "today", ranges, email subject and body) use US Central (`REPORT_TIMEZONE`, default `America/Chicago`).
+- `worker/access.log` has one JSON line per request (not `/health`): `ts` (UTC), `logTime` (Philippine time, `LOG_TIMEZONE`), `id`, `status`, `event` (`finish` or `aborted`), `user`, `userTz`, scope/range, `buildMs`, `totalMs`, `bytes`, `gzip`, `ip`, `ua`, `error`. The same `id` comes back as the `X-Request-Id` header and in error messages as "(ref ...)". Code: `worker/request-log.js`.
+- On the VPS: `tail -f /opt/reporttools/<tool>/worker/access.log` or `journalctl -u report-<tool> -f`.

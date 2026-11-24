@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { fmtDateInTz, ymdInTz, REPORT_TZ } from './request-log.js';
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({
@@ -6,11 +7,9 @@ function escapeHtml(s) {
   }[c]));
 }
 
-function fmtDate(iso) {
-  const d = new Date(iso);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${mm}/${dd}/${d.getFullYear()}`;
+// Client-facing date: the report's US timezone, not the server's clock.
+function fmtDate(iso, timeZone = REPORT_TZ) {
+  return fmtDateInTz(iso, timeZone);
 }
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -39,7 +38,7 @@ function describePeriod(report) {
 
   if (range === 'mtd') {
     // Default: report reflects up to the previous day (data lags one day).
-    const d = parseYMD(report.to) || new Date(report.generatedAt);
+    const d = parseYMD(report.to) || parseYMD(ymdInTz(report.generatedAt, report.timeZone || REPORT_TZ));
     const prev = new Date(d); prev.setDate(prev.getDate() - 1);
     return {
       subjectSuffix: `${MONTHS_SHORT[prev.getMonth()]} ${prev.getDate()}`,

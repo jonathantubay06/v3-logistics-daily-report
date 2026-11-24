@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import { writeFile } from 'node:fs/promises';
 import { config } from './config.js';
+import { REPORT_TZ, zonedParts, ymdInTz } from './request-log.js';
 
 // Set DEBUG_DUMP=1 in .env if you need to inspect the dashboard DOM.
 const DEBUG = process.env.DEBUG_DUMP === '1';
@@ -66,7 +67,9 @@ export async function generateReport(scope, opts = {}) {
   const range = opts.range && PRESET_LABELS.hasOwnProperty(opts.range) ? opts.range : 'mtd';
 
   const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1200 }, deviceScaleFactor: 2 });
+  // The dashboard computes "today" and its date presets in the browser's clock: run it in US time.
+  const timeZone = opts.timeZone || REPORT_TZ;
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1200 }, deviceScaleFactor: 2, timezoneId: timeZone });
   const page = await ctx.newPage();
 
   try {
@@ -133,6 +136,7 @@ export async function generateReport(scope, opts = {}) {
     return {
       scope,
       generatedAt: new Date().toISOString(),
+      timeZone,
       range,
       rangeLabel: periodLabel || 'Month to Date',
       from: appliedFrom,
@@ -145,16 +149,17 @@ export async function generateReport(scope, opts = {}) {
   }
 }
 
-// Start of this quarter / year through today, as YYYY-MM-DD (server local time,
-// same clock the dashboard's own date inputs use in the headless browser).
+// Start of this quarter / year through today, as YYYY-MM-DD in US report time
+// (the same clock the headless browser runs the dashboard in).
 function presetDates(range) {
-  const now = new Date();
-  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const t = zonedParts(new Date(), REPORT_TZ);
+  const today = ymdInTz(new Date(), REPORT_TZ);
+  const first = (month) => `${t.y}-${String(month).padStart(2, '0')}-01`;
   if (range === 'quarter') {
-    return { from: ymd(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)), to: ymd(now) };
+    return { from: first(Math.floor((t.m - 1) / 3) * 3 + 1), to: today };
   }
   if (range === 'year') {
-    return { from: ymd(new Date(now.getFullYear(), 0, 1)), to: ymd(now) };
+    return { from: first(1), to: today };
   }
   return null;
 }
